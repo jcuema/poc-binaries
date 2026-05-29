@@ -27,9 +27,6 @@ jobs:
             arch: arm64
             runner: ubuntu-24.04-arm
           - os: darwin
-            arch: amd64
-            runner: macos-13
-          - os: darwin
             arch: arm64
             runner: macos-14
 
@@ -54,7 +51,7 @@ jobs:
       - name: Build LavinMQ
         run: |
           shards install --production;
-          shards build --release --no-debug;
+          shards build --release --no-debug -Dpreview_mt;
 
       - name: Package Binary
         run: |
