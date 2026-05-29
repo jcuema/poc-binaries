@@ -8,6 +8,9 @@ on:
         required: true
         default: '2.8.1'
 
+permissions:
+  contents: write
+
 jobs:
   extract_linux:
     name: Extract Linux ${{ matrix.arch }}
