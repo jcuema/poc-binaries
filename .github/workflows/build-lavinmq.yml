@@ -50,8 +50,9 @@ jobs:
 
       - name: Build LavinMQ
         run: |
+          export CRYSTAL_OPTS="-Dpreview_mt";
           shards install --production;
-          shards build --release --no-debug -Dpreview_mt;
+          shards build --release --no-debug;
 
       - name: Package Binary
         run: |
