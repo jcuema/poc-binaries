@@ -10,7 +10,7 @@ on:
       crystal_version:
         description: 'Versão exata do compilador Crystal'
         required: true
-        default: '1.13.1'
+        default: '1.19.1'
 
 jobs:
   build:
