@@ -7,6 +7,10 @@ on:
         description: 'Versão do LavinMQ (ex: v1.3.1)'
         required: true
         default: 'v1.3.1'
+      crystal_version:
+        description: 'Versão exata do compilador Crystal'
+        required: true
+        default: '1.11.2'
 
 jobs:
   build:
@@ -18,10 +22,10 @@ jobs:
         include:
           - os: linux
             arch: amd64
-            runner: ubuntu-latest
+            runner: ubuntu-22.04
           - os: linux
             arch: arm64
-            runner: ubuntu-24.04-arm
+            runner: ubuntu-22.04-arm
           - os: darwin
             arch: amd64
             runner: macos-13
@@ -36,27 +40,28 @@ jobs:
           repository: cloudamqp/lavinmq
           ref: ${{ github.event.inputs.lavinmq_version }}
 
-      - name: Install Crystal (Linux)
+      - name: Install Crystal Compiler
+        uses: crystal-lang/install-crystal@v1
+        with:
+          crystal: ${{ github.event.inputs.crystal_version }}
+
+      - name: Install System Dependencies (Linux)
         if: matrix.os == 'linux'
         run: |
-          curl -fsSL https://crystal-lang.org/install.sh | sudo bash
-          sudo apt-get install -y libssl-dev libxml2-dev libyaml-dev libgmp-dev
-
-      - name: Install Crystal (macOS)
-        if: matrix.os == 'darwin'
-        run: brew install crystal openssl
+          sudo apt-get update;
+          sudo apt-get install -y libssl-dev libxml2-dev libyaml-dev libgmp-dev;
 
       - name: Build LavinMQ
         run: |
-          shards install --production
-          shards build --release --no-debug
+          shards install --production;
+          shards build --release --no-debug;
 
       - name: Package Binary
         run: |
-          mkdir -p package/bin
-          cp bin/lavinmq package/bin/
-          cd package
-          tar -czvf ../lavinmq-${{ github.event.inputs.lavinmq_version }}-${{ matrix.os }}-${{ matrix.arch }}.tar.gz bin/lavinmq
+          mkdir -p package/bin;
+          cp bin/lavinmq package/bin/;
+          cd package;
+          tar -czvf ../lavinmq-${{ github.event.inputs.lavinmq_version }}-${{ matrix.os }}-${{ matrix.arch }}.tar.gz bin/lavinmq;
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -76,8 +81,8 @@ jobs:
 
       - name: Prepare Release Files
         run: |
-          mkdir release_files
-          mv artifacts/**/*.tar.gz release_files/
+          mkdir release_files;
+          mv artifacts/**/*.tar.gz release_files/;
 
       - name: Create Release and Upload
         uses: softprops/action-gh-release@v2
