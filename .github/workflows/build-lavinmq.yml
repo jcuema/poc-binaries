@@ -1,0 +1,89 @@
+name: Build LavinMQ Binaries
+
+on:
+  workflow_dispatch:
+    inputs:
+      lavinmq_version:
+        description: 'Versão do LavinMQ (ex: v1.3.1)'
+        required: true
+        default: 'v1.3.1'
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }} (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+            runner: ubuntu-latest
+          - os: linux
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          - os: darwin
+            arch: amd64
+            runner: macos-13
+          - os: darwin
+            arch: arm64
+            runner: macos-14
+
+    steps:
+      - name: Checkout LavinMQ Source
+        uses: actions/checkout@v4
+        with:
+          repository: cloudamqp/lavinmq
+          ref: ${{ github.event.inputs.lavinmq_version }}
+
+      - name: Install Crystal (Linux)
+        if: matrix.os == 'linux'
+        run: |
+          curl -fsSL https://crystal-lang.org/install.sh | sudo bash
+          sudo apt-get install -y libssl-dev libxml2-dev libyaml-dev libgmp-dev
+
+      - name: Install Crystal (macOS)
+        if: matrix.os == 'darwin'
+        run: brew install crystal openssl
+
+      - name: Build LavinMQ
+        run: |
+          shards install --production
+          shards build --release --no-debug
+
+      - name: Package Binary
+        run: |
+          mkdir -p package/bin
+          cp bin/lavinmq package/bin/
+          cd package
+          tar -czvf ../lavinmq-${{ github.event.inputs.lavinmq_version }}-${{ matrix.os }}-${{ matrix.arch }}.tar.gz bin/lavinmq
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lavinmq-${{ matrix.os }}-${{ matrix.arch }}
+          path: lavinmq-*.tar.gz
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare Release Files
+        run: |
+          mkdir release_files
+          mv artifacts/**/*.tar.gz release_files/
+
+      - name: Create Release and Upload
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.lavinmq_version }}
+          name: LavinMQ ${{ github.event.inputs.lavinmq_version }}
+          files: release_files/*.tar.gz
+          draft: false
+          prerelease: false
