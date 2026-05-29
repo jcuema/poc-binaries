@@ -10,7 +10,7 @@ on:
       crystal_version:
         description: 'Versão exata do compilador Crystal'
         required: true
-        default: 'latest'
+        default: '1.13.1'
 
 jobs:
   build:
@@ -51,7 +51,7 @@ jobs:
       - name: Build LavinMQ
         run: |
           export CRYSTAL_OPTS="-Dpreview_mt";
-          shards install --production;
+          shards install --production --without-development;
           shards build --release --no-debug;
 
       - name: Package Binary
