@@ -29,11 +29,18 @@ jobs:
           # Por: @mt : Fiber::ExecutionContext::Parallel = Fiber::ExecutionContext::Parallel.new
           sed -i '' 's/@mt = Fiber::ExecutionContext::Parallel.new/@mt : Fiber::ExecutionContext::Parallel = Fiber::ExecutionContext::Parallel.new/g' src/lavinmq/clustering/server.cr
 
-      - name: Build LavinMQ using Makefile
+      - name: Build LavinMQ (The Right Way)
         run: |
-          shards install --production
-          # O makefile do LavinMQ geralmente já tem o -Dpreview_mt e as flags certas
-          make release
+          # Usamos a imagem oficial do Crystal que o projeto usa
+          docker run --rm \
+            -v ${{ github.workspace }}:/workspace \
+            -w /workspace \
+            crystallang/crystal:1.11.2 \
+            /bin/sh -c "
+              apt-get update && apt-get install -y make libssl-dev libpcre2-dev libevent-dev libgc-dev &&
+              shards install --production &&
+              make release
+            "
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
