@@ -22,10 +22,15 @@ jobs:
           repository: cloudamqp/lavinmq
           ref: ${{ env.LAVINMQ_VERSION }}
 
-      - name: Install Dependencies
+      - name: Install OS Dependencies
         run: |
           brew update
-          brew install crystal openssl@3 pcre2 libevent bdw-gc
+          brew install openssl@3 pcre2 libevent bdw-gc
+
+      - name: Install Pinned Crystal Compiler
+        uses: crystal-lang/install-crystal@v1
+        with:
+          crystal: 1.11.2
 
       - name: Build LavinMQ (Semi-Static)
         run: |
@@ -75,7 +80,7 @@ jobs:
             --platform linux/${{ matrix.arch }} \
             -v ${{ github.workspace }}:/workspace \
             -w /workspace \
-            crystallang/crystal:latest-alpine \
+            crystallang/crystal:1.11.2-alpine \
             /bin/sh -c "
               apk add --no-cache yaml-static openssl-libs-static pcre2-dev zlib-static libevent-static gc-dev &&
               shards install --production &&
