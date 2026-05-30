@@ -1,76 +1,49 @@
-name: Package LavinMQ Binaries (Extraction Method)
+name: Build and Release LavinMQ (Static)
 
 on:
   workflow_dispatch:
     inputs:
-      lavinmq_version:
-        description: 'Versão do LavinMQ para o nome do arquivo (ex: 2.8.1)'
+      version:
+        description: 'LavinMQ Release Tag (ex: v2.8.1)'
         required: true
-        default: '2.8.1'
+        default: 'v2.8.1'
 
-permissions:
-  contents: write
+env:
+  LAVINMQ_VERSION: ${{ github.event.inputs.version || 'v2.8.1' }}
 
 jobs:
-  extract_linux:
-    name: Extract Linux ${{ matrix.arch }}
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: amd64
-            runner: ubuntu-latest
-          - arch: arm64
-            runner: ubuntu-24.04-arm
+  build-macos:
+    name: Build macOS (ARM64)
+    runs-on: macos-14 # Importante: macos-14 roda nativamente em Apple Silicon (ARM64)
     steps:
-      - name: Install PackageCloud Repo and Download Deb
-        run: |
-          curl -s https://packagecloud.io/install/repositories/cloudamqp/lavinmq/script.deb.sh | sudo bash;
-          # Baixa o pacote oficial sem instalar no sistema
-          sudo apt-get download lavinmq;
-          
-      - name: Extract Binary from Deb
-        run: |
-          # Descompacta o .deb
-          dpkg-deb -x lavinmq_*.deb extracted_data;
-          
-          # Move o executável para a pasta final
-          mkdir -p package/bin;
-          cp extracted_data/usr/bin/lavinmq package/bin/;
-          
-          # Compacta no formato esperado pelo manifesto do Unherd
-          cd package;
-          tar -czvf ../lavinmq-v${{ github.event.inputs.lavinmq_version }}-linux-${{ matrix.arch }}.tar.gz bin/lavinmq;
-
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
+      - name: Checkout LavinMQ Source
+        uses: actions/checkout@v4
         with:
-          name: lavinmq-linux-${{ matrix.arch }}
-          path: lavinmq-*.tar.gz
+          repository: cloudamqp/lavinmq
+          ref: ${{ env.LAVINMQ_VERSION }}
 
-  extract_mac:
-    name: Extract Mac arm64
-    runs-on: macos-14
-    steps:
-      - name: Download Homebrew Bottle
+      - name: Install Dependencies
         run: |
-          # Pede ao brew para baixar o pacote comprimido sem instalar dependências
-          brew fetch --force lavinmq;
-          
-      - name: Extract Binary from Bottle
+          brew update
+          brew install crystal openssl@3 pcre2 libevent bdw-gc
+
+      - name: Build LavinMQ (Semi-Static)
         run: |
-          # Localiza o arquivo baixado no cache do sistema
-          BOTTLE_PATH=$(brew --cache lavinmq);
-          mkdir extracted_data;
-          tar -xf "$BOTTLE_PATH" -C extracted_data;
-          
-          # O executável fica aninhado em lavinmq/VERSAO/bin/lavinmq. Usamos find para localizar.
-          mkdir -p package/bin;
-          find extracted_data -type f -name "lavinmq" -exec cp {} package/bin/ \;;
-          
-          cd package;
-          tar -czvf ../lavinmq-v${{ github.event.inputs.lavinmq_version }}-darwin-arm64.tar.gz bin/lavinmq;
+          shards install --production
+          # Força o linker a usar os arquivos .a estáticos do Homebrew ao invés dos .dylib dinâmicos
+          crystal build src/lavinmq.cr --release --no-debug \
+            --link-flags="$(brew --prefix openssl@3)/lib/libssl.a \
+                          $(brew --prefix openssl@3)/lib/libcrypto.a \
+                          $(brew --prefix pcre2)/lib/libpcre2-8.a \
+                          $(brew --prefix libevent)/lib/libevent.a \
+                          $(brew --prefix bdw-gc)/lib/libgc.a"
+
+      - name: Package Artifact
+        run: |
+          FOLDER_NAME="lavinmq-${{ env.LAVINMQ_VERSION }}-darwin-arm64"
+          mkdir -p $FOLDER_NAME/bin
+          mv lavinmq $FOLDER_NAME/bin/
+          tar -czvf $FOLDER_NAME.tar.gz $FOLDER_NAME/
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -78,26 +51,68 @@ jobs:
           name: lavinmq-darwin-arm64
           path: lavinmq-*.tar.gz
 
+  build-linux:
+    name: Build Linux (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - name: Checkout LavinMQ Source
+        uses: actions/checkout@v4
+        with:
+          repository: cloudamqp/lavinmq
+          ref: ${{ env.LAVINMQ_VERSION }}
+
+      - name: Set up QEMU (For ARM64 Cross-Compilation)
+        if: matrix.arch == 'arm64'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Build LavinMQ (100% Static in Alpine)
+        run: |
+          # Utiliza o Alpine para compilar com musl libc, garantindo portabilidade total
+          docker run --rm \
+            --platform linux/${{ matrix.arch }} \
+            -v ${{ github.workspace }}:/workspace \
+            -w /workspace \
+            crystallang/crystal:latest-alpine \
+            /bin/sh -c "
+              apk add --no-cache yaml-static openssl-libs-static pcre2-dev zlib-static libevent-static gc-dev &&
+              shards install --production &&
+              crystal build src/lavinmq.cr --release --no-debug --static
+            "
+
+      - name: Package Artifact
+        run: |
+          FOLDER_NAME="lavinmq-${{ env.LAVINMQ_VERSION }}-linux-${{ matrix.arch }}"
+          mkdir -p $FOLDER_NAME/bin
+          mv lavinmq $FOLDER_NAME/bin/
+          tar -czvf $FOLDER_NAME.tar.gz $FOLDER_NAME/
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lavinmq-linux-${{ matrix.arch }}
+          path: lavinmq-*.tar.gz
+
   release:
     name: Create GitHub Release
-    needs: [extract_linux, extract_mac]
+    needs: [build-macos, build-linux]
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+          merge-multiple: true
 
-      - name: Prepare Release Files
-        run: |
-          mkdir release_files;
-          mv artifacts/**/*.tar.gz release_files/;
-
-      - name: Create Release and Upload
+      - name: Publish Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ github.event.inputs.lavinmq_version }}
-          name: LavinMQ v${{ github.event.inputs.lavinmq_version }}
-          files: release_files/*.tar.gz
+          tag_name: ${{ env.LAVINMQ_VERSION }}
+          name: "LavinMQ ${{ env.LAVINMQ_VERSION }}"
           draft: false
           prerelease: false
+          files: artifacts/lavinmq-*.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
