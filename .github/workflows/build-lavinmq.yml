@@ -22,11 +22,17 @@ jobs:
           brew update
           brew install crystal openssl@3 pcre2 libevent bdw-gc
 
+      - name: Patch Source Code (Type Inference Fix)
+        run: |
+          # Adiciona a anotação de tipo que o compilador exige
+          # Substitui: @mt = Fiber::ExecutionContext::Parallel.new
+          # Por: @mt : Fiber::ExecutionContext::Parallel = Fiber::ExecutionContext::Parallel.new
+          sed -i '' 's/@mt = Fiber::ExecutionContext::Parallel.new/@mt : Fiber::ExecutionContext::Parallel = Fiber::ExecutionContext::Parallel.new/g' src/lavinmq/clustering/server.cr
+
       - name: Build LavinMQ
         run: |
           shards install --production
-          # Usamos o linker do sistema e forçamos a inclusão dos arquivos .a
-          # O -Dpreview_mt é obrigatório para as versões recentes
+          # Adicionamos -Dpreview_mt e o patch garante a tipagem estrita
           crystal build src/lavinmq.cr -Dpreview_mt --release --no-debug \
             --link-flags="$(brew --prefix openssl@3)/lib/libssl.a \
                           $(brew --prefix openssl@3)/lib/libcrypto.a \
